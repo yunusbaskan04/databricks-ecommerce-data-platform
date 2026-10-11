@@ -52,6 +52,8 @@ Conventional-commit prefixes, one commit per pipeline stage: `feat: implement <s
 - Work in small steps. Propose a plan first and wait for approval before editing.
 - Leave design-critical logic (join keys, grain decisions, MERGE conditions,
   business rules like revenue definition) as `TODO(human)` for the user to write.
+- If the user has already made a design decision in chat, implement it directly
+  instead of leaving a `TODO(human)`.
 - Never run `git commit` or `git push`. When a commit point is reached, say so
   and suggest a conventional commit message.
 - Never run notebooks or modify data in Databricks; the user runs them.
@@ -63,7 +65,9 @@ one notebook at a time:
 
 - Raw files stay in the Volume; all Delta tables become UC managed tables
   under `workspace.olist` via `saveAsTable` (no path-based tables).
-- Bronze is append-only, with explicit schemas and `_ingested_at`, `_source_file` columns.
+- Bronze has explicit schemas and `_ingested_at`, `_source_file` columns.
+  Bronze uses overwrite while ingesting full CSV snapshots; it becomes
+  append-only once incremental file ingestion (Auto Loader, Phase 2) is in place.
 - Silver is split by grain: `silver_orders` (1 row per order, payments aggregated)
   and `silver_order_items` (1 row per item).
 - `MERGE` belongs in Silver, never in Bronze.

@@ -92,14 +92,20 @@ flowchart LR
 
 ### Bronze
 
-The Bronze layer stores raw source data in Delta format with minimal transformation.
+The Bronze layer stores raw source data as Unity Catalog managed Delta tables
+(`workspace.olist.bronze_<name>`) with minimal transformation.
+
+- Each CSV is read with an explicit schema instead of `inferSchema`.
+- Values that do not match the schema are kept in `_rescued_data`.
+- Every row carries ingestion metadata: `_ingested_at` and `_source_file`.
+- Tables are overwritten on each run while the source is a full CSV snapshot.
 
 ```text
-Olist CSV
+Olist CSV (UC Volume)
     ↓
-Spark DataFrame
+Spark DataFrame (explicit schema + metadata)
     ↓
-Bronze Delta
+workspace.olist.bronze_<name>
 ```
 
 ### Silver
@@ -177,9 +183,10 @@ databricks-ecommerce-data-platform/
 ├── README.md
 │
 ├── notebooks/
-│   ├── 02_bronze_ingestion
-│   ├── 03_silver_transformation
-│   └── 04_gold_analytics
+│   ├── 02_bronze_ingestion.py
+│   ├── 03_silver_transformation.ipynb
+│   ├── 04_gold_analytics.ipynb
+│   └── 05_incremental_processing.py
 │
 ├── docs/
 │   └── dashboard.png
