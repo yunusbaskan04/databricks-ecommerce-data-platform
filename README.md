@@ -148,7 +148,7 @@ Actions · *planned:* Apache Kafka, Auto Loader, Structured Streaming
 - [x] Python package with unit tests; notebooks as thin entry points
 - [x] CI: lint and tests on every pull request
 - [x] Pipeline defined as a job via Databricks Asset Bundles
-- [ ] End-to-end run verified on Databricks
+- [x] End-to-end run verified on Databricks (2026-10-25: 99,441 orders, 112,650 items, 0 quarantined rows, daily and category revenue reconcile)
 - [ ] Dashboard re-pointed to the new Gold tables
 
 ### Phase 2: Streaming and incremental processing
