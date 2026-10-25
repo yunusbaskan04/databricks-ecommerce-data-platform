@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local Spark artifacts
+spark-warehouse/
+metastore_db/
+derby.log
+
+# Databricks
+.databricks/
+
+# Raw data stays in the UC Volume, never in git
+data/*
+!data/.gitkeep
+
+# Editors / local agent settings
+.vscode/
+.idea/
+.claude/settings.local.json
