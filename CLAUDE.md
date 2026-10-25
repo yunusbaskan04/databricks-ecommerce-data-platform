@@ -4,48 +4,58 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Databricks / PySpark medallion pipeline (Bronze → Silver → Gold) over the Olist Brazilian E-Commerce dataset, ending in a Databricks SQL dashboard (`docs/dashboard.png`). The README tracks implemented vs. planned work (incremental processing, data quality, Jobs/Workflows, Kafka + Structured Streaming); keep its checklist and Project Structure section in sync when adding stages.
+A Databricks / PySpark medallion pipeline (Bronze → Silver → Gold) over the Olist Brazilian E-Commerce dataset, ending in a Databricks SQL dashboard (`docs/dashboard.png`). The platform is **Databricks Free Edition** (serverless only, restricted outbound internet). The README tracks implemented vs. planned work; keep its checklist and Project Structure section in sync when adding stages.
+
+## Layout
+
+- `src/olist_platform/`: all logic, as pure `DataFrame -> DataFrame` functions where possible.
+  `config.py` (catalog, schema, Volume path, `table_name()`), `schemas.py` (explicit Bronze schemas),
+  `bronze.py`, `silver.py`, `gold.py`.
+- `notebooks/`: thin Databricks entry points in **source format** (`.py`, `# Databricks notebook source`,
+  `# COMMAND ----------`, markdown as `# MAGIC %md`). Each opens with an English markdown cell explaining
+  the layer, then `sys.path.insert(0, os.path.abspath("../src"))`, imports from `olist_platform`, reads
+  tables, calls the functions and writes with `saveAsTable`. Notebooks rely on runtime globals
+  (`spark`, `display`, `dbutils`).
+- `tests/`: pytest with a local `SparkSession` (`conftest.py`, `bronze_df` fixture). No I/O in tests.
+- `databricks.yml`: Asset Bundle with the `olist_medallion` job (bronze → silver → gold, serverless).
+- `docs/decisions/`: ADRs. `docs/incidents/`: postmortems.
 
 ## Running code
 
-There is no local build, lint or test tooling. `src/`, `tests/` and `data/` hold only `.gitkeep` placeholders. All code is Databricks notebooks that run on a Databricks cluster/serverless and rely on the globals the runtime injects (`spark`, `display`, `dbutils`, `%fs`, and `delta.tables`). They will not run as plain Python scripts. To "run" something, the user executes the notebook in their Databricks workspace. Commits are made locally and pushed to GitHub.
-
-Notebooks run in numeric order, and each one reads the previous layer's output:
-
-1. `02_bronze_ingestion`: CSV → Bronze Delta (`orders`, `customers`, `products`, `order_items`, `payments`), using `load_to_bronze(file_name, table_name)`. There is no `01_` notebook.
-2. `03_silver_transformation`: Bronze → `silver/order_details`.
-3. `04_gold_analytics`: Silver → `gold/daily_sales`, `gold/category_sales`, `gold/order_status`.
-4. `05_incremental_processing`: Delta `MERGE` upsert demo on Bronze `orders`.
+- Local venv lives at `C:\Users\ybask\.venvs\olist` (outside the repo: the `ü` in the repo path breaks
+  Spark's Java classpath on Windows). Install with `pip install -e ".[dev]"`.
+- Lint: `ruff check .` and `ruff format --check .`. Tests: `pytest` (slow on Windows, ~90 s).
+- CI (`.github/workflows/ci.yml`) runs the same on every PR.
+- Databricks CLI: `databricks bundle validate|deploy|run`. The user authenticates with `databricks auth login`.
 
 ## Storage layout
 
-Everything is **path-based Delta** under a single Unity Catalog Volume. No `saveAsTable` is called in the repo. The UC tables the dashboard queries were registered outside these notebooks.
+Raw CSVs stay in the Volume `/Volumes/workspace/default/olist_data/`. Every Delta table is a UC managed
+table `workspace.olist.<layer>_<entity>` (ADR-0001), addressed only through `olist_platform.config`.
 
-```
-/Volumes/workspace/default/olist_data/
-  olist_*_dataset.csv          # raw source files
-  bronze/<table>/              # raw, inferSchema, mode("overwrite")
-  silver/order_details/
-  gold/<metric_table>/
-```
+- Bronze: `bronze_orders`, `bronze_customers`, `bronze_products`, `bronze_order_items`, `bronze_payments`,
+  `bronze_category_translation`; explicit schema, `_rescued_data`, `_ingested_at`, `_source_file`; overwrite.
+- Silver: `silver_orders`, `silver_order_items`, `silver_quarantine`; overwrite.
+- Gold: `gold_daily_sales`, `gold_category_sales`, `gold_order_status`; overwrite.
 
-Each notebook re-declares `DATA_PATH = "/Volumes/workspace/default/olist_data"` at the top. If you change that path, change it in every notebook. Every layer writes with `mode("overwrite")` (full rebuild); only notebook 05 uses `MERGE`.
+Old path-based folders (`bronze/`, `silver/`, `gold/` under the Volume) are obsolete.
 
-## Data-model points that span notebooks
+## Data-model points that span layers
 
-- **Silver grain is one row per order item**, not per order. Orders are left-joined to customers, then order_items, then products. That's why Gold uses `countDistinct("order_id")` for order counts and `sum("price")` for sales. Don't switch these to `count`, and don't use `total_payment_value` for sales.
-- **Payments are aggregated to one row per `order_id`** (`total_payment_value`, `payment_count`) *before* the join, to avoid multiplying rows. `total_payment_value` is therefore repeated on every item row of the same order. Summing it at the Silver grain double-counts.
-- The Silver output is a fixed column list (`select(...)` near the end of 03). New downstream fields need to be added there.
-- Notebook 05 **mutates the real Bronze `orders` table**: it merges 5 synthetic rows whose `order_id` is prefixed `incremental_`. Those rows flow into Silver/Gold if 03/04 run afterwards. Re-running 02 overwrites Bronze and removes them. The notebook itself says the realistic incremental ingestion strategy is still to come.
-
-## Notebook formats
-
-02–04 are `.ipynb` files exported from Databricks; their cell metadata (`application/vnd.databricks.v1+cell`, `nuid`) is Databricks-specific. 05 is in Databricks **source format** (`.py` starting with `# Databricks notebook source`, cells separated by `# COMMAND ----------`, markdown as `# MAGIC %md`). Keep the existing format of whichever file you edit. Each notebook opens with a markdown cell explaining the layer's purpose and architecture, written in English.
+- **Grain is in the table name.** `silver_orders` = one row per order; `silver_order_items` = one row per
+  item. Order counts are `count` on `silver_orders` but `countDistinct("order_id")` on items.
+- Payments are aggregated per order **before** joining (`total_payment_value`, `payment_count`) and live
+  only on `silver_orders`.
+- Data quality (ADR-0002): rows with null key, `_rescued_data`, duplicate key (latest `_ingested_at` wins)
+  or orphan item go to `silver_quarantine` (`entity`, `_dq_reason`, `record` JSON). Missing timestamps,
+  orders without items/payments are valid. Missing category → `"unknown"`.
+- Revenue (ADR-0003): `sum(price)` over items whose order status is not in
+  `gold.REVENUE_EXCLUDED_STATUSES` (`canceled`, `unavailable`). Freight is a separate metric.
+- Silver and Gold outputs use explicit `select` lists; new downstream fields must be added there.
 
 ## Commit style
 
-Conventional-commit prefixes, one commit per pipeline stage: `feat: implement <stage>`, `docs: ...`.
-
+Conventional commits, one commit per step: `feat:`, `refactor:`, `chore:`, `ci:`, `docs:`, `fix:`.
 
 ## Working agreement
 
@@ -62,20 +72,12 @@ Conventional-commit prefixes, one commit per pipeline stage: `feat: implement <s
 - Never run notebooks, run jobs or modify data in Databricks; the user runs them.
   Read-only checks through the Databricks CLI are fine. Ask before every
   `databricks bundle deploy`.
+- Mirror learnings into the user's Obsidian vault (`C:\Users\ybask\OneDrive\Masaüstü\Proje\Learning`),
+  following its `Vault rehberi.md`.
 
-## Target architecture (refactor in progress)
+## Roadmap
 
-The sections above describe the *current* state. New work moves toward this target,
-one notebook at a time:
-
-- Raw files stay in the Volume; all Delta tables become UC managed tables
-  under `workspace.olist` via `saveAsTable` (no path-based tables).
-- Bronze has explicit schemas and `_ingested_at`, `_source_file` columns.
-  Bronze uses overwrite while ingesting full CSV snapshots; it becomes
-  append-only once incremental file ingestion (Auto Loader, Phase 2) is in place.
-- Silver is split by grain: `silver_orders` (1 row per order, payments aggregated)
-  and `silver_order_items` (1 row per item).
-- `MERGE` belongs in Silver, never in Bronze.
-- Notebooks will be converted to Databricks source format (`.py`); shared logic moves to `src/`.
-
-When current state and target conflict, follow the target for new code.
+- Phase 2: Kafka (Docker locally) → events land in the Volume → Auto Loader → append-only Bronze →
+  `MERGE` in Silver. Free Edition likely cannot reach external brokers; spike first (ADR-0004).
+- Phase 3: data-quality monitoring and alerts on `silver_quarantine`.
+- Phase 4: performance (liquid clustering, `OPTIMIZE`).
