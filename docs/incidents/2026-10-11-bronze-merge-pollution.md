@@ -37,4 +37,6 @@ Bronze `orders` across repeated runs, although it was intended to be idempotent.
 - Delta time travel is short-term undo, not a backup.
 
 ## Follow-ups
-- [ ] Redesign incremental processing with an independent source (Phase 2).
+- [x] Remove the Bronze MERGE demo (`05_incremental_processing.py`), 2026-10-25.
+- [ ] Redesign incremental processing with an independent source (Phase 2:
+      Kafka events → Auto Loader → append-only Bronze → `MERGE` in Silver).
