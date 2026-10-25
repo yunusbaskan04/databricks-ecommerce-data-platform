@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "olist-platform"
+version = "0.1.0"
+description = "Medallion data platform on Databricks over the Olist e-commerce dataset"
+requires-python = ">=3.10"
+# PySpark is provided by the Databricks runtime, so it is only a dev dependency.
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pyspark>=4.0,<5",
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# Databricks notebooks rely on runtime-injected globals (spark, display, dbutils)
+# and import cells that are not at the top of the file.
+"notebooks/*.py" = ["F821", "E402"]

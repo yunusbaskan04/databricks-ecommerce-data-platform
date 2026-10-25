@@ -50,13 +50,18 @@ Conventional-commit prefixes, one commit per pipeline stage: `feat: implement <s
 ## Working agreement
 
 - Work in small steps. Propose a plan first and wait for approval before editing.
-- Leave design-critical logic (join keys, grain decisions, MERGE conditions,
-  business rules like revenue definition) as `TODO(human)` for the user to write.
-- If the user has already made a design decision in chat, implement it directly
-  instead of leaving a `TODO(human)`.
-- Never run `git commit` or `git push`. When a commit point is reached, say so
-  and suggest a conventional commit message.
-- Never run notebooks or modify data in Databricks; the user runs them.
+- Claude writes the code; the user owns design-critical decisions (grain, join
+  keys, MERGE conditions, data-quality rules, business rules like revenue).
+  Do not leave `TODO(human)` code. Instead, write an ADR in `docs/decisions/`
+  (copy `0000-template.md`) with context, options and trade-offs, ask the user to
+  choose, then record their choice and rationale and implement it.
+- If the user has already made a design decision in chat, record it and implement it.
+- Claude commits and pushes: one conventional commit per step, on a feature
+  branch per phase, merged to `main` through a PR after CI passes. Ask the user
+  before merging.
+- Never run notebooks, run jobs or modify data in Databricks; the user runs them.
+  Read-only checks through the Databricks CLI are fine. Ask before every
+  `databricks bundle deploy`.
 
 ## Target architecture (refactor in progress)
 
